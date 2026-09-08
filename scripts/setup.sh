@@ -12,12 +12,22 @@ rm -f "/etc/locale.gen"
 apt update -qqy
 apt upgrade -qqy
 apt autoremove -qqy
+
+# gt links against libconfig, whose runtime package name tracks the library
+# SONAME (libconfig9 on bookworm, libconfig11 on trixie). Resolve it instead of
+# hardcoding so the build does not break when RELEASE moves to a new Debian.
+LIBCONFIG=$(apt-cache --names-only search '^libconfig[0-9][0-9]*$' | cut -d' ' -f1)
+if [ -z "${LIBCONFIG}" ]; then
+    echo "setup.sh: no libconfigN runtime package found" >&2
+    exit 1
+fi
+
 apt install -qqy --no-install-recommends \
     bridge-utils \
     dnsmasq \
     hostapd \
     iptables \
-    libconfig9 \
+    ${LIBCONFIG} \
     locales \
     modemmanager \
     netcat-traditional \

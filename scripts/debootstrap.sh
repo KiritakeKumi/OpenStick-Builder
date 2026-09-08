@@ -1,7 +1,9 @@
 #!/bin/sh -e
 
 CHROOT=${CHROOT=$(pwd)/rootfs}
-RELEASE=${RELEASE=stable}
+# Pin the release: "stable" silently moves to the next Debian on release day,
+# which changes SONAME-versioned package names underneath the build.
+RELEASE=${RELEASE=trixie}
 HOST_NAME=${HOST_NAME=openstick-debian}
 
 rm -rf ${CHROOT}
