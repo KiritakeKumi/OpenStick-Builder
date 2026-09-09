@@ -21,8 +21,26 @@ jobs:
       - name: Extract MSM8916 firmware
         run: sudo sh -e scripts/extract_fw.sh
 
+      - name: Restore debootstrap package cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/debootstrap
+          key: ${{ runner.os }}-debootstrap-trixie-arm64-${{ hashFiles('scripts/debootstrap.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-debootstrap-trixie-arm64-
+
       - name: Create rootfs
         run: sudo sh -e scripts/debootstrap.sh
+
+      - name: Upload debootstrap diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debootstrap-diagnostics
+          path: |
+            build-logs/debootstrap.log
+            rootfs/debootstrap/debootstrap.log
+          if-no-files-found: ignore
 
       - name: Build gadget-tool
         run: sudo sh -e scripts/build_gt.sh

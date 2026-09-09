@@ -5,15 +5,78 @@ CHROOT=${CHROOT=$(pwd)/rootfs}
 # which changes SONAME-versioned package names underneath the build.
 RELEASE=${RELEASE=trixie}
 HOST_NAME=${HOST_NAME=openstick-debian}
+DEBOOTSTRAP_CACHE=${DEBOOTSTRAP_CACHE=$(pwd)/.cache/debootstrap}
+BOOTSTRAP_HEARTBEAT_SECONDS=${BOOTSTRAP_HEARTBEAT_SECONDS=60}
+BOOTSTRAP_DIAGNOSTICS=${BOOTSTRAP_DIAGNOSTICS=$(pwd)/build-logs}
+
+bootstrap_heartbeat() {
+    phase=$1
+    bootstrap_pid=$2
+
+    while kill -0 "${bootstrap_pid}" 2>/dev/null; do
+        sleep "${BOOTSTRAP_HEARTBEAT_SECONDS}"
+        kill -0 "${bootstrap_pid}" 2>/dev/null || break
+
+        rootfs_size=$(du -sh "${CHROOT}" 2>/dev/null | cut -f1 || true)
+        deb_count=$(find "${DEBOOTSTRAP_CACHE}" -type f -name '*.deb' 2>/dev/null | wc -l)
+        printf '\n[debootstrap heartbeat] phase=%s elapsed=%ss rootfs=%s cached_debs=%s\n' \
+            "${phase}" "$(( $(date +%s) - BOOTSTRAP_STARTED ))" \
+            "${rootfs_size:-0}" "${deb_count}"
+
+        if [ -f "${CHROOT}/debootstrap/debootstrap.log" ]; then
+            echo '[debootstrap heartbeat] latest log entries:'
+            tail -n 5 "${CHROOT}/debootstrap/debootstrap.log" || true
+        fi
+
+        echo '[debootstrap heartbeat] active bootstrap processes:'
+        ps -eo pid,ppid,stat,etime,%cpu,%mem,cmd \
+            | grep -E '[d]ebootstrap|[q]emu-aarch64|[d]pkg|[t]ar' || true
+    done
+}
+
+run_bootstrap_stage() {
+    phase=$1
+    shift
+    BOOTSTRAP_STARTED=$(date +%s)
+
+    echo "Starting debootstrap ${phase} stage"
+    "$@" &
+    bootstrap_pid=$!
+    bootstrap_heartbeat "${phase}" "${bootstrap_pid}" &
+    heartbeat_pid=$!
+
+    if wait "${bootstrap_pid}"; then
+        bootstrap_status=0
+    else
+        bootstrap_status=$?
+    fi
+    kill "${heartbeat_pid}" 2>/dev/null || true
+    wait "${heartbeat_pid}" 2>/dev/null || true
+
+    echo "Finished debootstrap ${phase} stage in $(( $(date +%s) - BOOTSTRAP_STARTED ))s"
+    return "${bootstrap_status}"
+}
 
 rm -rf ${CHROOT}
+mkdir -p ${DEBOOTSTRAP_CACHE}
+mkdir -p ${BOOTSTRAP_DIAGNOSTICS}
 
-debootstrap --foreign --arch arm64 \
+run_bootstrap_stage foreign \
+    debootstrap --verbose --log-extra-deps --foreign --arch arm64 \
+    --cache-dir=${DEBOOTSTRAP_CACHE} \
     --keyring /usr/share/keyrings/debian-archive-keyring.gpg ${RELEASE} ${CHROOT}
 
 cp $(which qemu-aarch64-static) ${CHROOT}/usr/bin
 
-chroot ${CHROOT} qemu-aarch64-static /bin/bash /debootstrap/debootstrap --second-stage
+run_bootstrap_stage second \
+    chroot ${CHROOT} qemu-aarch64-static /bin/bash \
+    /debootstrap/debootstrap --second-stage --keep-debootstrap-dir
+
+if [ -f "${CHROOT}/debootstrap/debootstrap.log" ]; then
+    cp "${CHROOT}/debootstrap/debootstrap.log" \
+        "${BOOTSTRAP_DIAGNOSTICS}/debootstrap.log"
+fi
+rm -rf "${CHROOT}/debootstrap"
 
 cat << EOF > ${CHROOT}/etc/apt/sources.list
 deb http://deb.debian.org/debian ${RELEASE} main contrib non-free-firmware
