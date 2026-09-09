@@ -92,8 +92,10 @@ jobs:
       - name: Create images
         run: sudo sh -e scripts/build_images.sh
 
+      # files/ is created by the sudo'd build scripts and is owned by root, so
+      # the redirect has to run as root too.
       - name: Generate image checksums
-        run: cd files && sha256sum * > SHA256SUMS
+        run: sudo sh -c 'cd files && sha256sum * > SHA256SUMS'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
