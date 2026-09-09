@@ -18,10 +18,20 @@ calibration.
 
 ## CI artifacts
 
-Run the **Build** workflow and download both artifacts:
+Every push to `main` publishes the natively built arm64 images as the rolling
+`latest` prerelease; a `v*` tag publishes a release under its own name. Both
+carry `boot.bin`, `rootfs.bin` and `SHA256SUMS`.
 
-- `openstick-debian`: `boot.bin`, `rootfs.bin` and the other release files;
-- `linux-6.6-wcn36xx-build`: kernel image, build metadata and checksums.
+To build a specific revision instead, run the **Build** workflow manually and
+download its artifacts:
+
+- `openstick-debian-<host>`: `boot.bin`, `rootfs.bin` and the other release
+  files;
+- `linux-6.6-wcn36xx-build-<host>`: kernel image, the patched UFI001C DTB,
+  build metadata and checksums.
+
+`<host>` is `arm64` or `x86_64` depending on the build host chosen; the images
+are identical in function, only the runner that produced them differs.
 
 The kernel metadata must report:
 
@@ -29,10 +39,6 @@ The kernel metadata must report:
 kernel_tag=v6.6-msm8916
 kernel_commit=038b2c46ae7ea7a027ef31628fa6b6751c0663b5
 ```
-
-The wcn36xx change is a testable workaround for delayed firmware TX ACK
-indications. Keep a verified 5.15 or unpatched 6.6 `boot`/`rootfs` pair ready
-for rollback until Wi-Fi association and repeated cold boots have passed.
 
 Verify the CI-generated hash list before flashing:
 
@@ -42,6 +48,24 @@ sha256sum -c SHA256SUMS
 
 `boot.bin` and `rootfs.bin` are Android sparse images. Use Fastboot for the
 normal update path; do not write sparse files as raw sectors with EDL.
+
+## What fixes Wi-Fi in this build
+
+`scripts/build_kernel.sh` marks `pm8916 l9` `regulator-always-on` in
+`msm8916-thwc-ufi001c.dtb` after `dtbs_install`. That rail feeds `vddpa`, the
+WCN3620 transmit power amplifier, and nothing else, so without the change it
+stays disabled with zero users while the iris' other three supplies are held up
+incidentally by the eMMC and USB consumers. The radio then receives at full
+signal and scans normally, but no AP ever acknowledges a transmitted frame:
+802.11 open-system authentication times out against every BSSID, long before
+WPA is reached, and `wcn36xx` logs `TX ACK indication timed out`.
+
+`patches/linux/0001-wcn36xx-allow-slow-tx-ack.patch` predates that finding. It
+raises the TX ACK watchdog and logs the timeout; with the rail powered it should
+never fire, so it is now diagnostic rather than a workaround. Its message
+appearing again means the PA is unpowered on that unit.
+
+The images are unaffected on other boards: only the UFI001C DTB is touched.
 
 ## Normal update using Fastboot
 
@@ -89,6 +113,20 @@ dmesg | grep -Ei 'wcn36xx|wcnss|wlan0|TX ACK|Spurious'
 nmcli device wifi list --rescan yes
 nmcli connection up test
 ```
+
+Confirm the transmit power amplifier rail came up. `l9` must read `enabled`
+with at least one user at 3.3 V:
+
+```sh
+for r in /sys/class/regulator/regulator.*; do
+    [ "$(cat "$r/name")" = l9 ] || continue
+    echo "$(cat "$r/state") $(cat "$r/microvolts") users=$(cat "$r/num_users")"
+done
+```
+
+Expected: `enabled 3300000 users=1`. A `disabled` `l9` means the running `boot`
+image still carries an unpatched DTB; scanning will work and association will
+not.
 
 For the patched 6.6 test, specifically record whether either message appears:
 

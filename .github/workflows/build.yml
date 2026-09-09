@@ -1,23 +1,40 @@
 name: Build
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       host_arch:
-        description: 'Build host: x86_64 bootstraps the rootfs through qemu-user, arm64 runs it natively'
+        description: 'Build host: arm64 runs the rootfs bootstrap natively, x86_64 goes through qemu-user'
         type: choice
-        default: x86_64
+        default: arm64
         options:
-          - x86_64
           - arm64
+          - x86_64
           - both
+
+# A rolling "latest" release is replaced in place, so two builds of main must
+# not publish at the same time. Queue them instead of cancelling: a superseded
+# build still uploads artifacts worth keeping.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(inputs.host_arch == 'both' && '["x86_64","arm64"]' || format('["{0}"]', inputs.host_arch)) }}
+        # inputs.host_arch is null outside workflow_dispatch, so pushes fall
+        # through to the native arm64 runner.
+        host: ${{ fromJSON(inputs.host_arch == 'both' && '["x86_64","arm64"]' || format('["{0}"]', inputs.host_arch || 'arm64')) }}
 
     runs-on: ${{ matrix.host == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
 
@@ -60,6 +77,7 @@ jobs:
           name: linux-6.6-wcn36xx-build-${{ matrix.host }}
           path: |
             kernel-out/boot/vmlinuz
+            kernel-out/boot/dtbs/qcom/msm8916-thwc-ufi001c.dtb
             kernel-out/lib/modules/6.6.0-msm8916/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko
             kernel-out/usr/share/openstick-kernel/build-info.txt
             kernel-out/usr/share/openstick-kernel/patches.sha256
@@ -102,3 +120,49 @@ jobs:
         with:
           name: openstick-debian-${{ matrix.host }}
           path: files/*
+
+  # Every push publishes the natively built arm64 images: a v* tag under its own
+  # name, anything else into a rolling "latest" prerelease that is replaced in
+  # place, so the newest boot.bin/rootfs.bin are always downloadable without
+  # tagging. Manual workflow_dispatch runs only produce artifacts - they can be
+  # x86_64-only, and they are usually experiments that should not become the
+  # published images.
+  release:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          name: openstick-debian-arm64
+          path: release
+
+      # Guards against a truncated artifact upload/download before the bytes
+      # are offered as a release someone will flash to eMMC.
+      - name: Verify image checksums
+        run: cd release && sha256sum -c SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+              gh release create "${GITHUB_REF_NAME}" release/* \
+                  --title "${GITHUB_REF_NAME}" --generate-notes
+          else
+              # --cleanup-tag also moves the "latest" tag off the old commit;
+              # the first ever run has nothing to delete.
+              gh release delete latest --yes --cleanup-tag || true
+              gh release create latest release/* \
+                  --target "${GITHUB_SHA}" --prerelease \
+                  --title "Latest build (${GITHUB_SHA:0:7})" \
+                  --notes "Automatic arm64 build of ${GITHUB_SHA}.
+
+          Flash with \`fastboot flash boot boot.bin\` and \`fastboot -S 200m flash rootfs rootfs.bin\`.
+          Verify the downloads against \`SHA256SUMS\` first."
+          fi

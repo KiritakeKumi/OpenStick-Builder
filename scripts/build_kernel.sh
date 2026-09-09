@@ -93,6 +93,36 @@ make -C "${SOURCE_DIR}" dtbs_install \
     INSTALL_DTBS_PATH="${OUTPUT}/boot/dtbs"
 rm -f "${OUTPUT}"/lib/modules/*/build "${OUTPUT}"/lib/modules/*/source
 
+# Keep the UFI001C Wi-Fi power amplifier rail powered.
+#
+# The WCN3620 iris takes four supplies. None of their consumers ever reaches
+# enable_count 1 on this board, but vddxo (l7), vdddig (l5) and vddrfa (s3) are
+# held up anyway by unrelated consumers (eMMC vqmmc/vmmc, USB ULPI). pm8916 l9
+# feeds vddpa and nothing else, so it alone stays off: the radio receives
+# normally and scans at full signal, but every transmitted frame leaves without
+# its PA, so no AP ever acknowledges it. wcn36xx reports "TX ACK indication
+# timed out" and 802.11 open-system authentication times out against every BSSID
+# long before WPA is reached.
+#
+# Measured on board1 (v6.6-msm8916, thwc,ufi001c): l9 read "disabled" with
+# num_users 0 throughout a live connection attempt and across a full WCNSS
+# stop/start, so this is structural rather than an init race. Marking the rail
+# always-on powers the PA; the same device then authenticates, associates and
+# obtains a DHCP lease. The stick is bus powered, so holding a 3.3 V rail costs
+# nothing that matters here.
+UFI001C_DTB="${OUTPUT}/boot/dtbs/qcom/msm8916-thwc-ufi001c.dtb"
+UFI001C_L9_NODE=/remoteproc/smd-edge/rpm-requests/regulators/l9
+if [ ! -f "${UFI001C_DTB}" ]; then
+    echo "build_kernel.sh: ${UFI001C_DTB} was not built" >&2
+    exit 1
+fi
+fdtput "${UFI001C_DTB}" "${UFI001C_L9_NODE}" regulator-always-on
+if ! fdtget -p "${UFI001C_DTB}" "${UFI001C_L9_NODE}" \
+        | tr ' ' '\n' | grep -qx regulator-always-on; then
+    echo "build_kernel.sh: failed to mark ${UFI001C_L9_NODE} always-on" >&2
+    exit 1
+fi
+
 kernel_release=$(cat "${SOURCE_DIR}/include/config/kernel.release")
 case "${kernel_release}" in
     6.6.0-msm8916) ;;
@@ -102,8 +132,6 @@ case "${kernel_release}" in
         ;;
 esac
 [ -f "${OUTPUT}/lib/modules/${kernel_release}/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko" ]
-[ -f "${OUTPUT}/boot/dtbs/qcom/msm8916-thwc-ufi001c.dtb" ] || \
-    echo "WARNING: custom UFI001C DTB will be installed later by debootstrap.sh"
 cat > "${OUTPUT}/usr/share/openstick-kernel/build-info.txt" << EOF
 kernel_tag=${KERNEL_TAG}
 kernel_commit=${KERNEL_COMMIT}
