@@ -11,6 +11,15 @@ Keep the firmware's single-outstanding-ACK design, but allow one second for
 the indication. Log watchdog expirations so field tests can distinguish this
 case from lost DXE completions. This intentionally avoids changing descriptor
 ownership or queue ordering.
+
+NOTE (2026-09-09): this patch predates the actual UFI001C Wi-Fi diagnosis and
+does not fix it. Association failed because pm8916 l9 (vddpa) was never
+enabled, so the transmit power amplifier was unpowered and no AP could ever
+acknowledge a frame -- no watchdog value can wait out an ACK that will not be
+sent. scripts/build_kernel.sh now marks that rail regulator-always-on in the
+board's device tree, which is the fix. The change below is retained purely as
+a diagnostic: with the rail powered the watchdog should never expire, so the
+message firing again means the PA is unpowered on that unit.
 ---
  drivers/net/wireless/ath/wcn36xx/dxe.c | 7 ++++++-
  1 file changed, 6 insertions(+), 1 deletion(-)

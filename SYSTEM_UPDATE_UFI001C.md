@@ -67,6 +67,39 @@ appearing again means the PA is unpowered on that unit.
 
 The images are unaffected on other boards: only the UFI001C DTB is touched.
 
+### Verification status
+
+Verified on board1 (serial `0A86678F`) on 2026-09-09, by patching the DTB in
+place on the running system and rebooting:
+
+- `l9` went from `disabled`/`num_users=0` to `enabled`, one user, 3300000 µV;
+- `wlan0` reached `authenticated` then `associated`, and DHCP returned
+  `172.16.0.164/16` via `172.16.10.254`;
+- `nmcli` reported `wlan0:wifi:connected:test`; ping to `223.5.5.5` and
+  `119.29.29.29` both 0% loss.
+
+Before the change, `l9` stayed disabled through 22 s of live authentication
+attempts and across a full WCNSS remoteproc `stop`/`start`, which is what rules
+out an init-order race and makes the always-on marking the right fix rather than
+a retry.
+
+The `fdtput` node path and the `fdtget` read-back check were exercised against
+the exact DTB this builder produces. What has **not** been confirmed yet is a
+full CI run carrying the change end to end — the first published build is the
+one to spot-check with the `l9` command under *Post-update verification*.
+
+Known-harmless noise that remains after the fix:
+
+```text
+wcn36xx: ERROR hal_enter_bmps response failed err=1
+wcn36xx: ERROR Can not enter BMPS!
+cfg80211: failed to load regulatory.db
+```
+
+Power-save entry fails and the connection is unaffected; `regulatory.db` is
+absent because `wireless-regdb` is not installed, and the world domain does not
+set NO-IR on channels 1-11. `iw` and `rfkill` are also not installed.
+
 ## Normal update using Fastboot
 
 Confirm that exactly one expected device is connected:
