@@ -127,7 +127,18 @@ if [ ! -f "${KERNEL_OUTPUT}/boot/vmlinuz" ] || \
     echo "debootstrap.sh: missing patched kernel output; run scripts/build_kernel.sh first" >&2
     exit 1
 fi
-cp -a "${KERNEL_OUTPUT}/." "${CHROOT}/"
+
+# Debian 13 uses merged-usr: /lib is a symlink to /usr/lib. Copying the
+# complete kernel output tree with cp -a would try to replace that symlink
+# with kernel-out/lib and fail. Install each payload into its canonical
+# destination instead.
+mkdir -p "${CHROOT}/boot" \
+    "${CHROOT}/usr/lib/modules" \
+    "${CHROOT}/usr/share/openstick-kernel"
+cp -a "${KERNEL_OUTPUT}/boot/." "${CHROOT}/boot/"
+cp -a "${KERNEL_OUTPUT}/lib/modules/." "${CHROOT}/usr/lib/modules/"
+cp -a "${KERNEL_OUTPUT}/usr/share/openstick-kernel/." \
+    "${CHROOT}/usr/share/openstick-kernel/"
 
 mkdir -p ${CHROOT}/boot/extlinux
 cp configs/extlinux.conf ${CHROOT}/boot/extlinux
