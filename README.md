@@ -1,7 +1,7 @@
 # OpenStick Image Builder
 Image builder for MSM8916 based 4G modem dongles
 
-This builder uses the precompiled [kernel](https://pkgs.postmarketos.org/package/main/postmarketos/aarch64/linux-postmarketos-qcom-msm8916) provided by [postmarketOS](https://postmarketos.org/) for Qualcomm MSM8916 devices. The build pins the kernel version and verifies the downloaded APK with SHA-256 for reproducibility.
+This builder uses the precompiled [kernel](https://pkgs.postmarketos.org/package/main/postmarketos/aarch64/linux-postmarketos-qcom-msm8916) provided by [postmarketOS](https://postmarketos.org/) for Qualcomm MSM8916 devices. The build pins the kernel version and verifies the downloaded APK with SHA-256 for reproducibility. lk2nd 23.1 is used so extlinux can load the larger kernel image.
 
 > [!NOTE]
 > This branch generates a `debian` image, use the [alpine branch](https://github.com/kinsamanka/OpenStick-Builder/tree/alpine) for an `alpine` image.
@@ -169,4 +169,6 @@ Edit [`scripts/setup.sh`](scripts/setup.sh) to add/remove packages. Note that th
           | tar xkzf - -C / --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
   ```
 
-  Specify the correct `<branch>` and `<version>` values.
+  Specify the correct `<branch>` and `<version>` values. Kernel 6.12 images
+  should be used with the builder's pinned lk2nd 23.1 `aboot.mbn`; older
+  builder-generated bootloaders may not handle larger extlinux kernels.

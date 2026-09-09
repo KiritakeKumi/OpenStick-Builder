@@ -10,6 +10,7 @@ apt install -y \
     debian-archive-keyring \
     debootstrap \
     device-tree-compiler \
+    e2fsprogs \
     fdisk \
     g++-aarch64-linux-gnu \
     gcc-aarch64-linux-gnu \

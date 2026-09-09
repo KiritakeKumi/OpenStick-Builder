@@ -28,6 +28,13 @@ cp -a dist/* mnt
 
 umount mnt
 
-# create sparse android images 
-img2simg rootfs.raw files/rootfs.bin
-img2simg boot.raw files/boot.bin
+# Punch holes only for blocks marked free by the ext filesystem, then preserve
+# those holes as Android sparse DONT_CARE chunks. Without this, img2simg encodes
+# unused ext blocks as zero-filled FILL chunks and fastboot unnecessarily writes
+# almost the full 3 GiB filesystem to eMMC.
+e2fsck -fy -E discard rootfs.raw || [ $? -eq 1 ]
+e2fsck -fy -E discard boot.raw || [ $? -eq 1 ]
+
+# create sparse android images
+img2simg -s rootfs.raw files/rootfs.bin
+img2simg -s boot.raw files/boot.bin
