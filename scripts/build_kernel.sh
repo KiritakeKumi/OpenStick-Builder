@@ -25,8 +25,17 @@ download_and_verify() {
 
     if [ ! -f "${output}" ] || ! echo "${checksum}  ${output}" | sha512sum -c -; then
         rm -f "${output}"
+        # codeload.github.com throttles unauthenticated archive downloads from
+        # shared CI address ranges with HTTP 429, which wget does not retry by
+        # default. A token raises the limit from per-IP to per-user; the bytes
+        # served are identical either way, so the checksum below still applies.
+        set --
+        if [ -n "${GITHUB_TOKEN}" ]; then
+            set -- --header="Authorization: Bearer ${GITHUB_TOKEN}"
+        fi
         wget --https-only --tries=5 --timeout=30 --retry-connrefused \
-            -O "${output}" "${url}"
+            --retry-on-http-error=429,500,502,503,504 --waitretry=30 \
+            "$@" -O "${output}" "${url}"
         echo "${checksum}  ${output}" | sha512sum -c -
     fi
 }

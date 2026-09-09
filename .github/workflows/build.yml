@@ -37,14 +37,22 @@ jobs:
 
       # runner.os is "Linux" on both hosts, so the cache key needs matrix.host
       # to keep the two build hosts from evicting each other's entries.
+      # restore-keys matters as much as the key here: the pinned tarball is a
+      # ~200 MB codeload.github.com download that gets rate-limited (HTTP 429),
+      # and without a prefix fallback every edit to build_kernel.sh or to a
+      # patch forces a cold re-download.
       - name: Restore pinned Linux source cache
         uses: actions/cache@v4
         with:
           path: .cache/kernel-6.6-wcn36xx
           key: ${{ runner.os }}-${{ matrix.host }}-msm8916-linux-6.6-${{ hashFiles('scripts/build_kernel.sh', 'patches/linux/*.patch') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.host }}-msm8916-linux-6.6-
 
       - name: Build Linux 6.6 with wcn36xx fix
-        run: sudo --preserve-env=GITHUB_ACTIONS sh -e scripts/build_kernel.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_TOKEN sh -e scripts/build_kernel.sh
 
       - name: Upload kernel diagnostics
         uses: actions/upload-artifact@v4
