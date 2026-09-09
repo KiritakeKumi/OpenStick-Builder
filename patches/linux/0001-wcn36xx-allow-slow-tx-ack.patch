@@ -1,0 +1,50 @@
+From: OpenStick Builder <noreply@openstick.local>
+Subject: [PATCH] wifi: wcn36xx: allow slow firmware TX acknowledgements
+
+Some UFI001C firmware revisions return OTA TX completion indications later
+than the 100 ms watchdog used by wcn36xx. The watchdog clears tx_ack_skb
+first, so the valid but late completion is reported as a spurious indication.
+Authentication management frames then reach mac80211 as unacknowledged and
+connection setup can time out.
+
+Keep the firmware's single-outstanding-ACK design, but allow one second for
+the indication. Log watchdog expirations so field tests can distinguish this
+case from lost DXE completions. This intentionally avoids changing descriptor
+ownership or queue ordering.
+---
+ drivers/net/wireless/ath/wcn36xx/dxe.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/ath/wcn36xx/dxe.c b/drivers/net/wireless/ath/wcn36xx/dxe.c
+index 9013f05..7f4ccf7 100644
+--- a/drivers/net/wireless/ath/wcn36xx/dxe.c
++++ b/drivers/net/wireless/ath/wcn36xx/dxe.c
+@@ -27,6 +27,9 @@
+ #include "wcn36xx.h"
+ #include "txrx.h"
+ 
++/* Older WCNSS firmware can take longer than 100 ms to report an OTA ACK. */
++#define WCN36XX_TX_ACK_TIMEOUT msecs_to_jiffies(1000)
++
+ static void wcn36xx_ccu_write_register(struct wcn36xx *wcn, int addr, int data)
+ {
+ 	wcn36xx_dbg(WCN36XX_DBG_DXE,
+@@ -379,6 +382,7 @@ static void wcn36xx_dxe_tx_timer(struct timer_list *t)
+ 	struct sk_buff *skb;
+ 
+ 	/* TX Timeout */
++	wcn36xx_warn("TX ACK indication timed out after 1000 ms\n");
+ 	wcn36xx_dbg(WCN36XX_DBG_DXE, "TX timeout\n");
+ 
+ 	spin_lock_irqsave(&wcn->dxe_lock, flags);
+@@ -429,6 +433,7 @@ static void reap_tx_dxes(struct wcn36xx *wcn, struct wcn36xx_dxe_ch *ch)
+ 						ieee80211_free_txskb(wcn->hw, wcn->tx_ack_skb);
+ 					wcn->tx_ack_skb = ctl->skb; /* Tracking ref */
+-					mod_timer(&wcn->tx_ack_timer, jiffies + HZ / 10);
++					mod_timer(&wcn->tx_ack_timer,
++						  jiffies + WCN36XX_TX_ACK_TIMEOUT);
+ 					spin_unlock(&wcn->dxe_lock);
+ 				}
+ 				/* do not free, ownership transferred to mac80211 status cb */
+-- 
+2.43.0

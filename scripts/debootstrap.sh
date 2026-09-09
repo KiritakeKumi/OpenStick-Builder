@@ -119,17 +119,15 @@ cat << EOF > ${CHROOT}/etc/udev/rules.d/99-nm-usb0.rules
 SUBSYSTEM=="net", ACTION=="add|change|move", ENV{DEVTYPE}=="gadget", ENV{NM_UNMANAGED}="0"
 EOF
 
-# install kernel
-KERNEL_VERSION=6.12.1-r6
-KERNEL_APK=linux-postmarketos-qcom-msm8916-${KERNEL_VERSION}.apk
-KERNEL_URL=https://mirror.postmarketos.org/postmarketos/main/aarch64/${KERNEL_APK}
-KERNEL_SHA256=f183d88e790f0a3eb4f402cf0ca6577d01185df98d41737bf565b05c8376f28a
-KERNEL_TMP=$(mktemp)
-
-wget -O ${KERNEL_TMP} ${KERNEL_URL}
-echo "${KERNEL_SHA256}  ${KERNEL_TMP}" | sha256sum -c -
-tar xkzf ${KERNEL_TMP} -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN*
-rm -f ${KERNEL_TMP}
+# Install the complete, matching kernel and module tree produced by
+# scripts/build_kernel.sh. Do not mix modules from another kernel release.
+KERNEL_OUTPUT=${KERNEL_OUTPUT=$(pwd)/kernel-out}
+if [ ! -f "${KERNEL_OUTPUT}/boot/vmlinuz" ] || \
+   [ ! -f "${KERNEL_OUTPUT}/usr/share/openstick-kernel/build-info.txt" ]; then
+    echo "debootstrap.sh: missing patched kernel output; run scripts/build_kernel.sh first" >&2
+    exit 1
+fi
+cp -a "${KERNEL_OUTPUT}/." "${CHROOT}/"
 
 mkdir -p ${CHROOT}/boot/extlinux
 cp configs/extlinux.conf ${CHROOT}/boot/extlinux

@@ -21,6 +21,26 @@ jobs:
       - name: Extract MSM8916 firmware
         run: sudo sh -e scripts/extract_fw.sh
 
+      - name: Restore pinned Linux source cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/kernel-6.6-wcn36xx
+          key: ${{ runner.os }}-msm8916-linux-6.6-${{ hashFiles('scripts/build_kernel.sh', 'patches/linux/*.patch') }}
+
+      - name: Build Linux 6.6 with wcn36xx fix
+        run: sudo --preserve-env=GITHUB_ACTIONS sh -e scripts/build_kernel.sh
+
+      - name: Upload kernel diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-6.6-wcn36xx-build
+          path: |
+            kernel-out/boot/vmlinuz
+            kernel-out/lib/modules/6.6.0-msm8916/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko
+            kernel-out/usr/share/openstick-kernel/build-info.txt
+            kernel-out/usr/share/openstick-kernel/patches.sha256
+            kernel-out/usr/share/openstick-kernel/SHA256SUMS
+
       - name: Restore debootstrap package cache
         uses: actions/cache@v4
         with:
@@ -47,6 +67,9 @@ jobs:
 
       - name: Create images
         run: sudo sh -e scripts/build_images.sh
+
+      - name: Generate image checksums
+        run: cd files && sha256sum * > SHA256SUMS
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
