@@ -8,7 +8,9 @@ This builder compiles the pinned MSM8916 Linux 6.6 source and postmarketOS confi
 
 ## Build Instructions
 ### Build locally
-This has been tested to work on **Ubuntu 22.04**
+This has been tested to work on **Ubuntu 22.04**. Both x86_64 and arm64 hosts
+are supported: the scripts detect the host architecture and only pull in
+`qemu-user-static` when the arm64 rootfs has to be emulated.
 - clone
   ```shell
   git clone --recurse-submodules https://github.com/kinsamanka/OpenStick-Builder.git
@@ -57,7 +59,11 @@ The generated firmware files will be stored under the `files` directory
 1. Fork this repo
 2. Run the [Build workflow](../../actions/workflows/build.yml)
    - click and run ***Run workflow***
-   - once the workflow is done, click on the workflow summary and then download the resulting artifact
+   - pick the **Build host**:
+     - `x86_64` (default) — runs on `ubuntu-latest` and bootstraps the arm64 rootfs through `qemu-user-static`
+     - `arm64` — runs on the native `ubuntu-24.04-arm` runner, so `debootstrap` and the `chroot` steps execute at full speed
+     - `both` — runs the two in parallel
+   - once the workflow is done, click on the workflow summary and then download the `openstick-debian-<host>` artifact
 
 ## Customizations
 Edit [`scripts/setup.sh`](scripts/setup.sh) to add/remove packages. Note that this script is running inside the `chroot` environment.

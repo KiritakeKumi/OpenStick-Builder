@@ -6,7 +6,6 @@ apt install -y \
     autoconf \
     automake \
     bc \
-    binfmt-support \
     bison \
     cmake \
     debian-archive-keyring \
@@ -27,6 +26,15 @@ apt install -y \
     python3-pyasn1-modules \
     python3-pycryptodome \
     patch \
-    qemu-user-static \
     unzip \
-    wget 
+    wget
+
+# debootstrap's second stage and the chroot steps execute arm64 binaries, which
+# an x86_64 host can only do through qemu-user. A native arm64 host runs them
+# directly. The aarch64-linux-gnu toolchain above needs no equivalent switch:
+# on arm64 those packages are thin aliases for the native compiler.
+if [ "$(uname -m)" != "aarch64" ]; then
+    apt install -y \
+        binfmt-support \
+        qemu-user-static
+fi

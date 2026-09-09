@@ -9,6 +9,14 @@ DEBOOTSTRAP_CACHE=${DEBOOTSTRAP_CACHE=$(pwd)/.cache/debootstrap}
 BOOTSTRAP_HEARTBEAT_SECONDS=${BOOTSTRAP_HEARTBEAT_SECONDS=60}
 BOOTSTRAP_DIAGNOSTICS=${BOOTSTRAP_DIAGNOSTICS=$(pwd)/build-logs}
 
+# An x86_64 host can only execute the arm64 rootfs through qemu-user; a native
+# arm64 host runs it directly. Empty means "no interpreter needed".
+if [ "$(uname -m)" = "aarch64" ]; then
+    QEMU_STATIC=
+else
+    QEMU_STATIC=qemu-aarch64-static
+fi
+
 bootstrap_heartbeat() {
     phase=$1
     bootstrap_pid=$2
@@ -61,16 +69,27 @@ rm -rf ${CHROOT}
 mkdir -p ${DEBOOTSTRAP_CACHE}
 mkdir -p ${BOOTSTRAP_DIAGNOSTICS}
 
-run_bootstrap_stage foreign \
-    debootstrap --verbose --log-extra-deps --foreign --arch arm64 \
-    --cache-dir=${DEBOOTSTRAP_CACHE} \
-    --keyring /usr/share/keyrings/debian-archive-keyring.gpg ${RELEASE} ${CHROOT}
+if [ -n "${QEMU_STATIC}" ]; then
+    run_bootstrap_stage foreign \
+        debootstrap --verbose --log-extra-deps --foreign --arch arm64 \
+        --cache-dir=${DEBOOTSTRAP_CACHE} \
+        --keyring /usr/share/keyrings/debian-archive-keyring.gpg ${RELEASE} ${CHROOT}
 
-cp $(which qemu-aarch64-static) ${CHROOT}/usr/bin
+    cp $(which ${QEMU_STATIC}) ${CHROOT}/usr/bin
 
-run_bootstrap_stage second \
-    chroot ${CHROOT} qemu-aarch64-static /bin/bash \
-    /debootstrap/debootstrap --second-stage --keep-debootstrap-dir
+    run_bootstrap_stage second \
+        chroot ${CHROOT} ${QEMU_STATIC} /bin/bash \
+        /debootstrap/debootstrap --second-stage --keep-debootstrap-dir
+else
+    # Native arm64: unpack and configure in one stage. --keep-debootstrap-dir
+    # preserves debootstrap.log for the diagnostics copy below, which the
+    # foreign path gets from its second stage.
+    run_bootstrap_stage native \
+        debootstrap --verbose --log-extra-deps --arch arm64 \
+        --keep-debootstrap-dir \
+        --cache-dir=${DEBOOTSTRAP_CACHE} \
+        --keyring /usr/share/keyrings/debian-archive-keyring.gpg ${RELEASE} ${CHROOT}
+fi
 
 if [ -f "${CHROOT}/debootstrap/debootstrap.log" ]; then
     cp "${CHROOT}/debootstrap/debootstrap.log" \
@@ -91,7 +110,7 @@ mount -o bind /dev/pts/ ${CHROOT}/dev/pts/
 mount -o bind /run ${CHROOT}/run/
 
 cp scripts/setup.sh ${CHROOT}
-chroot ${CHROOT} qemu-aarch64-static /bin/sh -c /setup.sh
+chroot ${CHROOT} ${QEMU_STATIC} /bin/sh -c /setup.sh
 
 # cleanup
 for a in proc sys dev/pts dev run; do

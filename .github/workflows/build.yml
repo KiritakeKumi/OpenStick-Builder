@@ -2,10 +2,24 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      host_arch:
+        description: 'Build host: x86_64 bootstraps the rootfs through qemu-user, arm64 runs it natively'
+        type: choice
+        default: x86_64
+        options:
+          - x86_64
+          - arm64
+          - both
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(inputs.host_arch == 'both' && '["x86_64","arm64"]' || format('["{0}"]', inputs.host_arch)) }}
+
+    runs-on: ${{ matrix.host == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +35,13 @@ jobs:
       - name: Extract MSM8916 firmware
         run: sudo sh -e scripts/extract_fw.sh
 
+      # runner.os is "Linux" on both hosts, so the cache key needs matrix.host
+      # to keep the two build hosts from evicting each other's entries.
       - name: Restore pinned Linux source cache
         uses: actions/cache@v4
         with:
           path: .cache/kernel-6.6-wcn36xx
-          key: ${{ runner.os }}-msm8916-linux-6.6-${{ hashFiles('scripts/build_kernel.sh', 'patches/linux/*.patch') }}
+          key: ${{ runner.os }}-${{ matrix.host }}-msm8916-linux-6.6-${{ hashFiles('scripts/build_kernel.sh', 'patches/linux/*.patch') }}
 
       - name: Build Linux 6.6 with wcn36xx fix
         run: sudo --preserve-env=GITHUB_ACTIONS sh -e scripts/build_kernel.sh
@@ -33,7 +49,7 @@ jobs:
       - name: Upload kernel diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: linux-6.6-wcn36xx-build
+          name: linux-6.6-wcn36xx-build-${{ matrix.host }}
           path: |
             kernel-out/boot/vmlinuz
             kernel-out/lib/modules/6.6.0-msm8916/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko
@@ -45,9 +61,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/debootstrap
-          key: ${{ runner.os }}-debootstrap-trixie-arm64-${{ hashFiles('scripts/debootstrap.sh') }}
+          key: ${{ runner.os }}-${{ matrix.host }}-debootstrap-trixie-arm64-${{ hashFiles('scripts/debootstrap.sh') }}
           restore-keys: |
-            ${{ runner.os }}-debootstrap-trixie-arm64-
+            ${{ runner.os }}-${{ matrix.host }}-debootstrap-trixie-arm64-
 
       - name: Create rootfs
         run: sudo sh -e scripts/debootstrap.sh
@@ -56,7 +72,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debootstrap-diagnostics
+          name: debootstrap-diagnostics-${{ matrix.host }}
           path: |
             build-logs/debootstrap.log
             rootfs/debootstrap/debootstrap.log
@@ -74,5 +90,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openstick-debian
+          name: openstick-debian-${{ matrix.host }}
           path: files/*

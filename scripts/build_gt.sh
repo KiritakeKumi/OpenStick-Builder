@@ -3,8 +3,15 @@
 CHROOT=${CHROOT=$(pwd)/rootfs}
 SRCDIR=$(pwd)/src
 
+# See debootstrap.sh: only an x86_64 host needs qemu-user to run the chroot.
+if [ "$(uname -m)" = "aarch64" ]; then
+    QEMU_STATIC=
+else
+    QEMU_STATIC=qemu-aarch64-static
+fi
+
 # install gt dependencies
-chroot ${CHROOT} qemu-aarch64-static /bin/sh \
+chroot ${CHROOT} ${QEMU_STATIC} /bin/sh \
     -c " apt update; apt install libconfig-dev -y"
 
 # build and install gt
